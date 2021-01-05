@@ -18,6 +18,10 @@ import h5py
 import numpy as np
 import torch
 import yaml
+import cv2
+
+from .util import read_img, get_image_paths, modcrop, channel_convert
+
 
 
 def et_query(
@@ -183,6 +187,7 @@ class SliceDataset(torch.utils.data.Dataset):
         use_dataset_cache: bool = False,
         dataset_cache_file: Union[str, Path, os.PathLike] = "dataset_cache.pkl",
         num_cols: Optional[Tuple[int]] = None,
+        seed = None
     ):
         """
         Args:
@@ -212,6 +217,7 @@ class SliceDataset(torch.utils.data.Dataset):
             "reconstruction_esc" if challenge == "singlecoil" else "reconstruction_rss"
         )
         self.examples = []
+        self.seed = seed
 
         # load dataset cache if we have and user wants to use it
         if self.dataset_cache_file.exists() and use_dataset_cache:
@@ -310,3 +316,59 @@ class SliceDataset(torch.utils.data.Dataset):
             sample = self.transform(kspace, mask, target, attrs, fname.name, dataslice)
 
         return sample
+
+
+class FASTMRIDataset(torch.utils.data.Dataset):
+    '''
+    Read subsampled (Low Quality, here is LQ) and GT image pairs.
+    If only GT image is provided, generate LQ image on-the-fly.
+    The pair is ensured by 'sorted' function, so please check the name convention.
+    '''
+    def __init__(self, input_path, transform):
+        super(FASTMRIDataset, self).__init__()
+        self.transform = transform
+        self.seed = 10
+
+        self.data_type = 'img'
+        self.paths_LQ, self.paths_GT = None, None
+        self.sizes_LQ, self.sizes_GT = None, None
+        self.LQ_env, self.GT_env = None, None  # environment for lmdb
+
+        self.paths_GT, self.sizes_GT = get_image_paths(self.data_type, input_path)
+        self.paths_LQ, self.sizes_LQ = get_image_paths(self.data_type, None)
+        assert self.paths_GT, 'Error: GT path is empty.'
+        if self.paths_LQ and self.paths_GT:
+            assert len(self.paths_LQ) == len(
+                self.paths_GT
+            ), 'GT and LQ datasets have different number of images - {}, {}.'.format(
+                len(self.paths_LQ), len(self.paths_GT))
+
+
+    def __getitem__(self, index):
+        GT_path, LQ_path = None, None
+        scale = 2.0
+
+        # get GT image
+        GT_path = self.paths_GT[index]
+        if self.data_type == 'lmdb':
+            resolution = [int(s) for s in self.sizes_GT[index].split('_')]
+        else:
+            resolution = None
+        img_GT = read_img(self.GT_env, GT_path, resolution)
+        # modcrop in the validation / test phase
+        img_GT = modcrop(img_GT, scale)
+            # print('val img_GT shape: ', img_GT.shape)
+        # change color space if necessary
+        img_GT = channel_convert(img_GT.shape[2], 'gray', [img_GT])[0]
+        # print('img_GT shape: ', img_GT.shape)
+        if img_GT.ndim == 2:
+            img_GT = np.expand_dims(img_GT, axis=2)
+
+        # transform() - subsample k space - img_LF
+        # input img shape [H, W, 1] or [H, W, 3]
+        sample = self.transform(img_GT, os.path.basename(GT_path), seed=self.seed)
+
+        return sample
+
+    def __len__(self):
+        return len(self.paths_GT)

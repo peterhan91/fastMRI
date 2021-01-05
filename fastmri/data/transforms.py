@@ -248,6 +248,36 @@ class UnetDataTransform:
         self.use_seed = use_seed
 
     def __call__(
+        self, 
+        target, 
+        fname, 
+        slice_num=0, 
+        attrs=None,
+        seed=None
+        ):
+        # Preprocess the data here
+        # target shape: [H, W, 1] or [H, W, 3]
+        img = target
+        if target.shape[2] != 2:
+            img = np.concatenate((target, np.zeros_like(target)), axis=2)
+        assert img.shape[-1] == 2
+        img = to_tensor(img)
+        kspace = fastmri.fft2c(img) 
+
+        center_kspace, _ = apply_mask(kspace, self.mask_func, seed=seed)
+        img_LF = fastmri.complex_abs(fastmri.ifft2c(center_kspace))
+        img_LF = img_LF.unsqueeze(0)
+        image, mean, std = normalize_instance(img_LF, eps=1e-11)
+        image = image.clamp(-6, 6)
+        # img_LF tensor should have shape [H, W, ?]
+        target = to_tensor(np.transpose(target, (2, 0, 1)))  # target shape [1, H, W]
+        target = normalize(target, mean, std, eps=1e-11)
+        target = target.clamp(-6, 6)
+        # check for max value
+        max_value = attrs["max"] if "max" in attrs.keys() else 0.0
+        return image, target, mean, std, fname, slice_num, max_value
+'''
+    def __call__(
         self,
         kspace: np.ndarray,
         mask: np.ndarray,
@@ -323,7 +353,7 @@ class UnetDataTransform:
             target = torch.Tensor([0])
 
         return image, target, mean, std, fname, slice_num, max_value
-
+'''
 
 class VarNetDataTransform:
     """

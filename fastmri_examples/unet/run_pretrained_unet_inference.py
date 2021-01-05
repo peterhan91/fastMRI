@@ -15,9 +15,11 @@ import fastmri.data.transforms as T
 import numpy as np
 import requests
 import torch
-from fastmri.data import SliceDataset
+from fastmri.data import SliceDataset, FASTMRIDataset, RandomMaskFunc
 from fastmri.models import Unet
 from tqdm import tqdm
+
+from fastmri.data import util
 
 UNET_FOLDER = "https://dl.fbaipublicfiles.com/fastMRI/trained_models/unet/"
 MODEL_FNAMES = {
@@ -48,18 +50,20 @@ def download_model(url, fname):
 
 
 def run_unet_model(batch, model, device):
-    image, _, mean, std, fname, slice_num, _ = batch
+    image, target, mean, std, fname, _, _ = batch
 
     output = model(image.to(device).unsqueeze(1)).squeeze(1).cpu()
 
     mean = mean.unsqueeze(1).unsqueeze(2)
     std = std.unsqueeze(1).unsqueeze(2)
-    (output * std + mean).cpu()
+    output = (output * std + mean).cpu().numpy()
+    target = (target * std + mean).cpu().numpy()
+    image = (image * std + mean).cpu().numpy()
 
-    return output, int(slice_num[0]), fname[0]
+    return output, target, image, fname
 
 
-def run_inference(challenge, state_dict_file, data_path, output_path, device):
+def run_inference(challenge, state_dict_file, input_path, device):
     model = Unet(in_chans=1, out_chans=1, chans=256, num_pool_layers=4, drop_prob=0.0)
     # download the state_dict if we don't have it
     if state_dict_file is None:
@@ -72,25 +76,23 @@ def run_inference(challenge, state_dict_file, data_path, output_path, device):
     model.load_state_dict(torch.load(state_dict_file))
     model = model.eval()
 
+    mask_func =  RandomMaskFunc(
+                    center_fractions=[0.08],
+                    accelerations=[4]
+                    )
+
     # data loader setup
     if "_mc" in challenge:
-        data_transform = T.UnetDataTransform(which_challenge="multicoil")
+        data_transform = T.UnetDataTransform(which_challenge="multicoil", mask_func=mask_func)
     else:
-        data_transform = T.UnetDataTransform(which_challenge="singlecoil")
+        data_transform = T.UnetDataTransform(which_challenge="singlecoil", mask_func=mask_func)
 
-    if "_mc" in challenge:
-        dataset = SliceDataset(
-            root=data_path,
-            transform=data_transform,
-            challenge="multicoil",
-        )
-    else:
-        dataset = SliceDataset(
-            root=data_path,
-            transform=data_transform,
-            challenge="singlecoil",
-        )
-    dataloader = torch.utils.data.DataLoader(dataset, num_workers=4)
+    dataset = FASTMRIDataset(
+        input_path=input_path,
+        transform=data_transform,
+    )
+
+    dataloader = torch.utils.data.DataLoader(dataset, num_workers=1)
 
     # run the model
     start_time = time.perf_counter()
@@ -99,15 +101,8 @@ def run_inference(challenge, state_dict_file, data_path, output_path, device):
 
     for batch in tqdm(dataloader, desc="Running inference"):
         with torch.no_grad():
-            output, slice_num, fname = run_unet_model(batch, model, device)
-
-        outputs[fname].append((slice_num, output))
-
-    # save outputs
-    for fname in outputs:
-        outputs[fname] = np.stack([out for _, out in sorted(outputs[fname])])
-
-    fastmri.save_reconstructions(outputs, output_path / "reconstructions")
+            output, target, input, fname = run_unet_model(batch, model, device)
+            util.save_img(fname, [output, target, input])
 
     end_time = time.perf_counter()
 
@@ -160,6 +155,5 @@ if __name__ == "__main__":
         args.challenge,
         args.state_dict_file,
         args.data_path,
-        args.output_path,
         torch.device(args.device),
     )
