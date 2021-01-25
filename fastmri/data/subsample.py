@@ -133,6 +133,36 @@ class RandomMaskFunc(MaskFunc):
         return mask
 
 
+class HammingMaskFunc(MaskFunc):
+
+    def __init__(self, accelerations):
+
+        self.accelerations = accelerations
+        self.rng = np.random.RandomState()
+
+    def __call__(self, shape, seed=None):
+
+        if len(shape) < 3:
+            raise ValueError('Shape should have 3 or more dimensions')
+
+        self.rng.seed(seed)
+        num_cols = shape[-2]
+
+        # Create the mask
+        num_low_freqs = int(num_cols // self.accelerations)
+        center = np.hamming(num_low_freqs)
+        mask = np.zeros(num_cols, dtype=np.float32)
+        pad = (num_cols - num_low_freqs + 1) // 2
+        mask[pad:pad + num_low_freqs] = center
+
+        # Reshape the mask
+        mask_shape = [1 for _ in shape]
+        mask_shape[-2] = num_cols
+        mask = torch.from_numpy(mask.reshape(*mask_shape).astype(np.float32))
+
+        return mask
+
+
 class EquispacedMaskFunc(MaskFunc):
     """
     EquispacedMaskFunc creates a sub-sampling mask of a given shape.
@@ -218,5 +248,7 @@ def create_mask_for_mask_type(
         return RandomMaskFunc(center_fractions, accelerations)
     elif mask_type_str == "equispaced":
         return EquispacedMaskFunc(center_fractions, accelerations)
+    elif mask_type_str == "hamming":
+        return HammingMaskFunc(accelerations)
     else:
         raise Exception(f"{mask_type_str} not supported")

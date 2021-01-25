@@ -88,6 +88,7 @@ class MriModule(pl.LightningModule):
         if val_logs["target"].ndim == 2:
             val_logs["target"] = val_logs["target"].unsqueeze(0)
         elif val_logs["target"].ndim != 3:
+            # print(val_logs['target'].shape)
             raise RuntimeError("Unexpected output size from validation_step.")
 
         # pick a set of images to log if we don't have one already

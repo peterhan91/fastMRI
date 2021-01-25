@@ -10,16 +10,17 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 import fastmri
+from fastmri import data
 import pytorch_lightning as pl
 import torch
-from fastmri.data import CombinedSliceDataset, SliceDataset
+from fastmri.data import CombinedSliceDataset, SliceDataset, FASTMRIDataset
 
 
 def worker_init_fn(worker_id):
     """Handle random seeding for all mask_func."""
     worker_info = torch.utils.data.get_worker_info()
     data: Union[
-        SliceDataset, CombinedSliceDataset
+        SliceDataset, CombinedSliceDataset, FASTMRIDataset
     ] = worker_info.dataset  # pylint: disable=no-member
     # for NumPy random seed we need it to be in this range
     seed = worker_info.seed % (2 ** 32 - 1)  # pylint: disable=no-member
@@ -115,7 +116,7 @@ class FastMriDataModule(pl.LightningDataModule):
             sample_rate = 1.0
 
         # if desired, combine train and val together for the train split
-        dataset: Union[SliceDataset, CombinedSliceDataset]
+        dataset: Union[SliceDataset, CombinedSliceDataset, FASTMRIDataset]
         if is_train and self.combine_train_val:
             data_paths = [
                 self.data_path / f"{self.challenge}_train",
@@ -131,18 +132,24 @@ class FastMriDataModule(pl.LightningDataModule):
                 sample_rates=sample_rates,
                 use_dataset_cache=self.use_dataset_cache_file,
             )
+
         else:
             if data_partition in ("test", "challenge") and self.test_path is not None:
                 data_path = self.test_path
             else:
                 data_path = self.data_path / f"{self.challenge}_{data_partition}"
 
-            dataset = SliceDataset(
-                root=data_path,
-                transform=data_transform,
-                sample_rate=sample_rate,
-                challenge=self.challenge,
-                use_dataset_cache=self.use_dataset_cache_file,
+            # dataset = SliceDataset(
+            #     root=data_path,
+            #     transform=data_transform,
+            #     sample_rate=sample_rate,
+            #     challenge=self.challenge,
+            #     use_dataset_cache=self.use_dataset_cache_file,
+            # )
+
+            dataset = FASTMRIDataset(
+                input_path=data_path,
+                transform=data_transform
             )
 
         # ensure that entire volumes go to the same GPU in the ddp setting
@@ -151,7 +158,8 @@ class FastMriDataModule(pl.LightningDataModule):
             if is_train:
                 sampler = torch.utils.data.DistributedSampler(dataset)
             else:
-                sampler = fastmri.data.VolumeSampler(dataset)
+                # sampler = fastmri.data.VolumeSampler(dataset)
+                sampler = torch.utils.data.DistributedSampler(dataset)
 
         dataloader = torch.utils.data.DataLoader(
             dataset=dataset,
@@ -185,12 +193,10 @@ class FastMriDataModule(pl.LightningDataModule):
                 zip(data_paths, data_transforms)
             ):
                 sample_rate = self.sample_rate if i == 0 else 1.0
-                _ = SliceDataset(
-                    root=data_path,
+                print(data_path)
+                _ = FASTMRIDataset(
+                    input_path=data_path,
                     transform=data_transform,
-                    sample_rate=sample_rate,
-                    challenge=self.challenge,
-                    use_dataset_cache=self.use_dataset_cache_file,
                 )
 
     def train_dataloader(self):
@@ -230,7 +236,7 @@ class FastMriDataModule(pl.LightningDataModule):
         )
         parser.add_argument(
             "--challenge",
-            choices=("singlecoil", "multicoil"),
+            choices=("singlecoil", "multicoil", 'Img'),
             default="singlecoil",
             type=str,
             help="Which challenge to preprocess for",

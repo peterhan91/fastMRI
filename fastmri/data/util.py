@@ -4,6 +4,7 @@ import pickle
 import random
 import numpy as np
 import torch
+from torch.functional import norm
 import cv2
 
 ####################
@@ -447,6 +448,11 @@ def imresize_np(img, scale, antialiasing=True):
 
     return out_2.numpy()
 
+def normalize_to_plus_minus_one(img):
+    img_zero = img - np.amin(img)
+    img_one = img_zero / np.amax(img_zero)
+    img_one_one = img_one * 2.0 - 1.0
+    return img_one_one
 
 def save_img(fname, img_list):
     names = ['../result/output', '../result/target', '../result/input']
@@ -455,7 +461,11 @@ def save_img(fname, img_list):
         path = os.path.join(name, root)
         if not os.path.exists(path):
             os.makedirs(path)
-        cv2.imwrite(os.path.join(path, fname.split('_')[-1]), img_list[i])
+        # print(img_list[i].shape)
+        img = np.squeeze(img_list[i])
+        img = normalize_to_plus_minus_one(img)
+        img = np.clip(np.rint((img + 1.0) / 2.0 * 255.0), 0.0, 255.0).astype(np.uint8)
+        cv2.imwrite(os.path.join(path, fname.split('_')[-1]), img)
 
 
 if __name__ == '__main__':

@@ -9,8 +9,10 @@ import argparse
 import time
 from collections import defaultdict
 from pathlib import Path
+import sys
+sys.path.append('/media/tianyu.han/mri-scratch/DeepLearning/FastMRI/code/fastmri')
 
-import fastmri
+# import fastmri
 import fastmri.data.transforms as T
 import numpy as np
 import requests
@@ -56,11 +58,11 @@ def run_unet_model(batch, model, device):
 
     mean = mean.unsqueeze(1).unsqueeze(2)
     std = std.unsqueeze(1).unsqueeze(2)
-    output = (output * std + mean).cpu().numpy()
-    target = (target * std + mean).cpu().numpy()
-    image = (image * std + mean).cpu().numpy()
+    output = (output).cpu().numpy()
+    target = (target).cpu().numpy()
+    image = (image).cpu().numpy()
 
-    return output, target, image, fname
+    return output, target, image, fname[0]
 
 
 def run_inference(challenge, state_dict_file, input_path, device):
@@ -141,12 +143,6 @@ if __name__ == "__main__":
         type=Path,
         required=True,
         help="Path to subsampled data",
-    )
-    parser.add_argument(
-        "--output_path",
-        type=Path,
-        required=True,
-        help="Path for saving reconstructions",
     )
 
     args = parser.parse_args()

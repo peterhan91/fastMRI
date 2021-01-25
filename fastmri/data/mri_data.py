@@ -356,7 +356,7 @@ class FASTMRIDataset(torch.utils.data.Dataset):
             resolution = None
         img_GT = read_img(self.GT_env, GT_path, resolution)
         # modcrop in the validation / test phase
-        img_GT = modcrop(img_GT, scale)
+        # img_GT = modcrop(img_GT, scale)
             # print('val img_GT shape: ', img_GT.shape)
         # change color space if necessary
         img_GT = channel_convert(img_GT.shape[2], 'gray', [img_GT])[0]

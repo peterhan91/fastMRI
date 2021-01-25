@@ -53,6 +53,9 @@ def apply_mask(
     mask_func: MaskFunc,
     seed: Optional[Union[int, Tuple[int, ...]]] = None,
     padding: Optional[Sequence[int]] = None,
+    rev=False,
+    hamming=False,
+    cuda=False
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Subsample given k-space by multiplying with a mask.
@@ -78,7 +81,31 @@ def apply_mask(
         mask[:, :, : padding[0]] = 0
         mask[:, :, padding[1] :] = 0  # padding value inclusive on right of zeros
 
-    masked_data = data * mask + 0.0  # the + 0.0 removes the sign of the zeros
+    # masked_data = data * mask + 0.0  # the + 0.0 removes the sign of the zeros
+    if cuda:
+        mask = mask.cuda()
+        if not rev:
+            if not hamming:
+                return torch.where(mask == 0, torch.Tensor([0]).cuda(), data), mask
+            else:
+                return mask*data, mask
+        else:
+            if not hamming:
+                return torch.where(mask != 0, torch.Tensor([0]).cuda(), data), mask
+            else:
+                return (1.-mask)*data, mask
+    else:
+        if not rev:
+            if not hamming:
+                return torch.where(mask == 0, torch.Tensor([0]), data), mask
+            else:
+                return mask*data, mask
+        else:
+            if not hamming:
+                return torch.where(mask != 0, torch.Tensor([0]), data), mask
+            else:
+                return (1.-mask)*data, mask
+
 
     return masked_data, mask
 
@@ -240,7 +267,7 @@ class UnetDataTransform:
                 generator seed from the filename. This ensures that the same
                 mask is used for all the slices of a given volume every time.
         """
-        if which_challenge not in ("singlecoil", "multicoil"):
+        if which_challenge not in ("singlecoil", "multicoil", "Img"):
             raise ValueError("Challenge should either be 'singlecoil' or 'multicoil'")
 
         self.mask_func = mask_func
@@ -264,7 +291,7 @@ class UnetDataTransform:
         img = to_tensor(img)
         kspace = fastmri.fft2c(img) 
 
-        center_kspace, _ = apply_mask(kspace, self.mask_func, seed=seed)
+        center_kspace, _ = apply_mask(kspace, self.mask_func, hamming=True, seed=seed)
         img_LF = fastmri.complex_abs(fastmri.ifft2c(center_kspace))
         img_LF = img_LF.unsqueeze(0)
         image, mean, std = normalize_instance(img_LF, eps=1e-11)
@@ -273,8 +300,11 @@ class UnetDataTransform:
         target = to_tensor(np.transpose(target, (2, 0, 1)))  # target shape [1, H, W]
         target = normalize(target, mean, std, eps=1e-11)
         target = target.clamp(-6, 6)
+        target = target.squeeze(0)
         # check for max value
-        max_value = attrs["max"] if "max" in attrs.keys() else 0.0
+        max_value = 0.0
+        # print('traget shape', target.shape)
+        # print('image shape', image.shape)
         return image, target, mean, std, fname, slice_num, max_value
 '''
     def __call__(

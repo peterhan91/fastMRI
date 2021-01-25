@@ -8,6 +8,8 @@ LICENSE file in the root directory of this source tree.
 import os
 import pathlib
 from argparse import ArgumentParser
+import sys
+sys.path.append('/media/tianyu.han/mri-scratch/DeepLearning/FastMRI/code/fastMRI/')
 
 import pytorch_lightning as pl
 from fastmri.data.mri_data import fetch_dir
@@ -81,9 +83,9 @@ def build_args():
 
     # basic args
     path_config = pathlib.Path("../../fastmri_dirs.yaml")
-    num_gpus = 2
+    num_gpus = 1
     backend = "ddp"
-    batch_size = 1 if backend == "ddp" else num_gpus
+    batch_size = 8 if backend == "ddp" else num_gpus
 
     # set defaults based on optional directory config
     data_path = fetch_dir("knee_path", path_config)
@@ -101,8 +103,8 @@ def build_args():
     # data transform params
     parser.add_argument(
         "--mask_type",
-        choices=("random", "equispaced"),
-        default="random",
+        choices=("random", "equispaced", "hamming"),
+        default="hamming",
         type=str,
         help="Type of k-space mask",
     )
